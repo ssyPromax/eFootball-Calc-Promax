@@ -1,0 +1,79 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b1220">
+<title>实况抽卡概率计算</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="app">
+  <header>
+    <h1>实况抽卡概率计算</h1>
+  </header>
+
+  <section class="card">
+    <div class="field">
+      <label for="rate">5星单抽概率</label>
+      <div class="num">
+        <input id="rate" type="number" value="5" min="0" max="100" step="0.1" inputmode="decimal">
+        <span class="unit">%</span>
+      </div>
+    </div>
+    <div class="field">
+      <label for="five">卡池 5星球员数量</label>
+      <div class="num"><input id="five" type="number" value="10" min="1" step="1" inputmode="numeric"></div>
+    </div>
+    <div class="field">
+      <label for="featured">其中高光/黄传/精选数量</label>
+      <div class="num"><input id="featured" type="number" value="2" min="0" step="1" inputmode="numeric"></div>
+    </div>
+    <div class="field">
+      <label for="ten">金币十连次数</label>
+      <div class="num"><input id="ten" type="number" value="1" min="0" step="1" inputmode="numeric"></div>
+    </div>
+    <div class="field">
+      <label for="single">单抽券张数</label>
+      <div class="num"><input id="single" type="number" value="0" min="0" step="1" inputmode="numeric"></div>
+    </div>
+
+    <div class="field" style="display:block;padding-top:14px;">
+      <label>保底方式</label>
+      <div class="seg" id="guarantee">
+        <button type="button" data-mode="none" class="on">普通包<br>无保底</button>
+        <button type="button" data-mode="fixed">保黑包<br>第10抽必出</button>
+      </div>
+    </div>
+  </section>
+
+  <p class="error" id="error"></p>
+
+  <section class="card results">
+    <div class="hit"><span>单抽命中率</span><b id="hit">-</b></div>
+    <div class="row"><span>一张都不出</span><b id="p0">-</b></div>
+    <div class="row"><span>恰好出 1 张</span><b id="p1">-</b></div>
+    <div class="row"><span>恰好出 2 张</span><b id="p2">-</b></div>
+    <div class="row"><span>出 3 张及以上</span><b id="p3">-</b></div>
+    <div class="bar"><i id="bar0"></i><i id="bar1"></i><i id="bar2"></i><i id="bar3"></i></div>
+    <div class="coins"><span>平均出货金币（仅金币，约）</span><b id="coins">-</b></div>
+  </section>
+
+  <footer>
+    <div>
+      作者：ssyPromax ·
+      <a href="https://space.bilibili.com/677960956" target="_blank" rel="noopener">B站：证明及其限度</a>
+      ·
+      <a href="https://github.com/ssyPromax" target="_blank" rel="noopener">GitHub</a>
+    </div>
+    <div>联系：sss15006@outlook.com</div>
+    <span class="ver">v2.1 · 数据只在本地计算</span>
+  </footer>
+</main>
+
+<script src="app.js"></script>
+<script src="ui.js"></script>
+</body>
+</html>
+
+

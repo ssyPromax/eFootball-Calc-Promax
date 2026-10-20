@@ -1,263 +1,336 @@
-import tkinter as tk
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""实况抽卡概率计算（修复版）
+
+单文件、仅依赖 Python 标准库，Python 3.9+。
+
+相比原版：
+- 计算层与界面层分离，概率模型可以单独跑单元测试（见 test_calc.py）
+- 修正「保黑包」恰好出 1 张的指数错误
+- 支持普通包和保黑包（第 10 抽必出 5星）两种规则
+- 单抽券与金币抽使用同一概率（原版把券写死成 10%）
+- 输入全部校验，不再输出负数概率或直接崩溃
+- 结果统一为「0 / 1 / 2 / 3+ 张」，标签不再名不副实
+- 支持高 DPI，窗口可拉伸，布局不再贴边
+"""
+from __future__ import annotations
+
+import math
+import sys
 import webbrowser
-from tkinter import simpledialog
+from dataclasses import dataclass
 
-# 全局变量
-a0, a, b, c, d, e, e2 = 0, 0, 0, 0, 0, 0, 0
+COINS_PER_PULL = 100  # 一抽 100 金币；十连 1000 金币
+MAX_TEN_PULLS = 200   # 防止输入过大导致界面卡死
+MAX_SINGLES = 2000
 
-# 初始化窗口
-root = tk.Tk()
-root.geometry('450x280')
-root.title("实况抽卡概率计算")
+AUTHOR = {
+    "outlook": ("sss15006@outlook.com", "sss15006@outlook.com"),
+    "qq": ("QQ: 3192491461", "3192491461"),
+    "pingqiu": ("大众评球：mc方", "mc方"),
+    "efootball": ("实况id：983736108", "983736108"),
+    "github": ("Github：ssyPromax", "https://github.com/ssyPromax"),
+    "bilibili": ("B站：证明及其限度", "https://space.bilibili.com/677960956"),
+}
 
-# 初始化标签
-p0_label = tk.Label(root, text="")
-p1_label = tk.Label(root, text="")
-p2_label = tk.Label(root, text="")
-p3_label = tk.Label(root, text="")
-p4_label = tk.Label(root, text="")
+# ---------------------------------------------------------------- 概率模型
+GUARANTEE_NONE = "普通包（无保底）"
+GUARANTEE_FIXED = "保黑包：第 10 抽必出 5星"
+GUARANTEE_MODES = (GUARANTEE_NONE, GUARANTEE_FIXED)
 
-# 调用初始化函数
-def setup():
-    print("Setting up...")
-setup()
 
-# 作者信息
-def open_link(url):
-    webbrowser.open(url)
+def binom_pmf(n: int, p: float) -> list[float]:
+    """二项分布 P(X=k), k=0..n。用对数计算，避免大 n 时组合数上溢。"""
+    if n < 0:
+        raise ValueError("抽卡次数不能为负")
+    if not 0.0 <= p <= 1.0:
+        raise ValueError("概率必须在 0~1 之间")
+    if n == 0:
+        return [1.0]
+    if p == 0.0:
+        return [1.0] + [0.0] * n
+    if p == 1.0:
+        return [0.0] * n + [1.0]
+    log_p, log_q = math.log(p), math.log1p(-p)
+    lgamma_n = math.lgamma(n + 1)
+    return [
+        math.exp(lgamma_n - math.lgamma(k + 1) - math.lgamma(n - k + 1)
+                 + k * log_p + (n - k) * log_q)
+        for k in range(n + 1)
+    ]
 
-def author():
-    author_win = tk.Toplevel()
-    author_win.title("作者")
-    author_win.geometry('300x270')
 
-    # 邮箱
-    email_label = tk.Label(author_win, text="Outlook：sss15006")
-    email_label.place(x=110, y=30, anchor="center")
-    def copy_email():
-        author_win.clipboard_clear()
-        author_win.clipboard_append("sss15006@outlook.com")
-        author_win.update()
-    copy_email_button = tk.Button(author_win, text="复制", command=copy_email)
-    copy_email_button.place(x=250, y=30, anchor="center")
+def convolve(a: list[float], b: list[float]) -> list[float]:
+    """两个「出货数量」分布相加。"""
+    out = [0.0] * (len(a) + len(b) - 1)
+    for i, ai in enumerate(a):
+        if ai == 0.0:
+            continue
+        for j, bj in enumerate(b):
+            out[i + j] += ai * bj
+    return out
 
-        # QQ
-    qq_label = tk.Label(author_win, text="QQ: 3192491461")
-    qq_label.place(x=110, y=70, anchor="center")
-    def copy_qq():
-        author_win.clipboard_clear()
-        author_win.clipboard_append("3192491461")
-        author_win.update()
-    copy_qq_button = tk.Button(author_win, text="复制", command=copy_qq)
-    copy_qq_button.place(x=250, y=70, anchor="center")
-    
-    # 评球
-    pq_label = tk.Label(author_win, text="大众评球：mc方", fg="black", cursor="hand2")
-    pq_label.place(x=110, y=110, anchor="center")
-    def copy_pq():
-        author_win.clipboard_clear()
-        author_win.clipboard_append("mc方")
-        author_win.update()
-    copy_pq_button = tk.Button(author_win, text="复制", command=copy_pq)
-    copy_pq_button.place(x=250, y=110, anchor="center")
 
-    # 实况
-    efootball_label = tk.Label(author_win, text="实况id：983736108", fg="black", cursor="hand2")
-    efootball_label.place(x=110, y=150, anchor="center")
-    def copy_efootball():
-        author_win.clipboard_clear()
-        author_win.clipboard_append("983736108")
-        author_win.update()
-    copy_efootball_button = tk.Button(author_win, text="复制", command=copy_efootball)
-    copy_efootball_button.place(x=250, y=150, anchor="center")
+@dataclass(frozen=True)
+class DrawModel:
+    """一次抽卡活动的概率模型。
 
-    # GitHub 链接
-    github_label = tk.Label(author_win, text="Github：ssyPromax", fg="blue", cursor="hand2")
-    github_label.place(x=110, y=190, anchor="center")
-    def copy_github():
-        author_win.clipboard_clear()
-        author_win.clipboard_append("https://github.com/ssyPromax")
-        author_win.update()
-    github_label.bind("<Button-1>", lambda event: open_link("https://github.com/ssyPromax"))
-    copy_github_button = tk.Button(author_win, text="复制", command=copy_github)
-    copy_github_button.place(x=250, y=190, anchor="center")
+    five_rate       单抽出 5星 的概率（0~1），即游戏里公示的概率
+    five_count      卡池里 5星 球员总数 a
+    featured_count  其中目标（高光/黄传/精选）数量 b
+    guarantee       十连保底语义，见 GUARANTEE_MODES
+    """
 
-    # B站链接
-    bilibili_label = tk.Label(author_win, text="B站: 没能力的赵鹏", fg="blue", cursor="hand2")
-    bilibili_label.place(x=110, y=230, anchor="center")
-    def copy_bilibili():
-        author_win.clipboard_clear()
-        author_win.clipboard_append("https://space.bilibili.com/677960956")
-        author_win.update()
-    bilibili_label.bind("<Button-1>", lambda event: open_link("https://space.bilibili.com/677960956"))
-    copy_bilibili_button = tk.Button(author_win, text="复制", command=copy_bilibili)
-    copy_bilibili_button.place(x=250, y=230, anchor="center")
+    five_rate: float
+    five_count: int
+    featured_count: int
+    guarantee: str = GUARANTEE_NONE
 
-# 定义输入函数
-def get_a0():
-    global a0
-    input_a0 = simpledialog.askstring("5星球员概率", "请输入5星球员概率(%):")
-    if input_a0 is None:  # 用户取消输入
+    def __post_init__(self) -> None:
+        if not 0.0 < self.five_rate <= 1.0:
+            raise ValueError("5星 概率必须大于 0 且不超过 100%")
+        if self.five_count < 1:
+            raise ValueError("卡池 5星 球员数量至少为 1")
+        if not 0 <= self.featured_count <= self.five_count:
+            raise ValueError("目标球员数量必须在 0 到 5星 总数之间")
+        if self.guarantee not in GUARANTEE_MODES:
+            raise ValueError(f"未知保底方式：{self.guarantee}")
+
+    @property
+    def hit_rate(self) -> float:
+        """单抽命中目标球员的概率 e = 5星 概率 × b/a。"""
+        return self.five_rate * self.featured_count / self.five_count
+
+    @property
+    def featured_share(self) -> float:
+        """一张 5星 恰好是目标球员的概率 q = b/a。"""
+        return self.featured_count / self.five_count
+
+    def pack_pmf(self) -> list[float]:
+        """一次十连的出货数量分布（不含单抽券）。"""
+        e = self.hit_rate
+        q = self.featured_share
+
+        if self.guarantee == GUARANTEE_NONE:
+            return binom_pmf(10, e)
+
+        # 保黑包：9 次普通抽 + 第 10 抽固定 5星（是否命中按 b/a 决定）
+        out = [0.0] * 11
+        for k, p in enumerate(binom_pmf(9, e)):
+            out[k] += p * (1 - q)
+            out[k + 1] += p * q
+        return out
+
+    def distribution(self, ten_pulls: int, singles: int) -> list[float]:
+        """ten_pulls 个十连 + singles 张单抽券的出货数量分布。"""
+        if ten_pulls < 0 or singles < 0:
+            raise ValueError("抽卡次数不能为负")
+        if ten_pulls == 0 and singles == 0:
+            raise ValueError("至少要有一次抽卡")
+        dist = [1.0]
+        pack = self.pack_pmf()
+        for _ in range(ten_pulls):
+            dist = convolve(dist, pack)
+        if singles:
+            dist = convolve(dist, binom_pmf(singles, self.hit_rate))
+        return dist
+
+    def expected_coins(self) -> float | None:
+        """平均出货金币（只算金币抽，单抽券不折算）。不可能出货时返回 None。"""
+        e, q = self.hit_rate, self.featured_share
+        if e <= 0.0:
+            return None
+        if self.guarantee == GUARANTEE_NONE:
+            return COINS_PER_PULL / e
+        # 保黑包：每个十连平均命中 9e + q
+        return 10 * COINS_PER_PULL / (9 * e + q)
+
+
+@dataclass(frozen=True)
+class Result:
+    p0: float           # 一张都不出
+    p1: float           # 恰好 1 张
+    p2: float           # 恰好 2 张
+    p3: float           # 3 张及以上
+    hit_rate: float     # 单抽命中率
+    avg_coins: float | None
+
+
+def calculate(model: DrawModel, ten_pulls: int, singles: int) -> Result:
+    dist = model.distribution(ten_pulls, singles)
+    p0 = dist[0]
+    p1 = dist[1] if len(dist) > 1 else 0.0
+    p2 = dist[2] if len(dist) > 2 else 0.0
+    p3 = max(0.0, 1.0 - p0 - p1 - p2)
+    return Result(p0 * 100, p1 * 100, p2 * 100, p3 * 100,
+                  model.hit_rate, model.expected_coins())
+
+
+# ---------------------------------------------------------------- 界面层
+def enable_high_dpi() -> None:
+    """让 Windows 高分屏下的界面不糊。必须在创建 Tk 之前调用。"""
+    if sys.platform != "win32":
         return
     try:
-        a0 = 0.01 * int(input_a0)
-        a0_label.config(text=f"{input_a0}%")
-    except ValueError:
-        a0_label.config(text="NaN")
+        import ctypes
 
-def get_a():
-    global a
-    input_a = simpledialog.askstring("5星球员数量", "请输入5星球员数量:")
-    if input_a is None:
-        return
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        pass
+
+
+def copy_to_clipboard(widget, text: str) -> None:
+    widget.clipboard_clear()
+    widget.clipboard_append(text)
+    widget.update()
+
+
+def main() -> None:
+    import tkinter as tk
+    from tkinter import ttk
+
+    enable_high_dpi()
+    root = tk.Tk()
+    root.title("实况抽卡概率计算")
+    root.minsize(430, 340)
+
+    style = ttk.Style()
     try:
-        a = int(input_a)
-        a_label.config(text=input_a)
-    except ValueError:
-        a_label.config(text="NaN")
+        style.configure("Result.TLabel", font=("Microsoft YaHei UI", 11))
+    except Exception:
+        pass
 
-def get_b():
-    global b
-    input_b = simpledialog.askstring("高光/黄传/精选球员数量", "请输入高光/黄传/精选球员数量:")
-    if input_b is None:
-        return
-    try:
-        b = int(input_b)
-        b_label.config(text=input_b)
-    except ValueError:
-        b_label.config(text="NaN")
+    inputs = {
+        "rate": tk.StringVar(value="5"),
+        "five": tk.StringVar(value="10"),
+        "featured": tk.StringVar(value="2"),
+        "ten": tk.StringVar(value="1"),
+        "single": tk.StringVar(value="0"),
+        "guarantee": tk.StringVar(value=GUARANTEE_NONE),
+        "status": tk.StringVar(value=""),
+    }
 
-def get_c():
-    global c
-    input_c = simpledialog.askstring("金币十连抽次数", "请输入金币十连抽次数:")
-    if input_c is None:
-        return
-    try:
-        c = int(input_c)
-        c_label.config(text=input_c)
-    except ValueError:
-        c_label.config(text="NaN")
+    frame_in = ttk.LabelFrame(root, text="卡池与抽卡", padding=10)
+    frame_in.pack(fill="x", padx=12, pady=(12, 6))
 
-def get_d():
-    global d
-    input_d = simpledialog.askstring("券单抽次数", "请输入券抽取次数:")
-    if input_d is None:
-        return
-    try:
-        d = int(input_d)
-        d_label.config(text=input_d)
-    except ValueError:
-        d_label.config(text="NaN")
+    rows = [
+        ("5星 单抽概率 (%)", "rate"),
+        ("卡池 5星 球员数量", "five"),
+        ("其中高光/黄传/精选数量", "featured"),
+        ("金币十连次数", "ten"),
+        ("单抽券张数", "single"),
+    ]
+    for r, (label, key) in enumerate(rows):
+        ttk.Label(frame_in, text=label).grid(row=r, column=0, sticky="w", pady=3)
+        entry = ttk.Entry(frame_in, textvariable=inputs[key], width=8,
+                          justify="right")
+        entry.grid(row=r, column=1, sticky="e", padx=(8, 0), pady=3)
+        entry.bind("<KeyRelease>", lambda _e: recalc())
 
-# 定义计算函数
-def calc():
-    global e, e2  # 确保 e 和 e2 是全局变量
-    selected_option = var.get()
+    ttk.Label(frame_in, text="保底方式").grid(row=0, column=2, sticky="w",
+                                             padx=(24, 6))
+    combo = ttk.Combobox(frame_in, textvariable=inputs["guarantee"],
+                         values=GUARANTEE_MODES, state="readonly", width=26)
+    combo.grid(row=1, column=2, rowspan=1, sticky="w", padx=(24, 0))
+    combo.bind("<<ComboboxSelected>>", lambda _e: recalc())
 
-    if selected_option == 1:
-        if a0 != 0 and a != 0 and b != 0:
-            e = a0 * (b / a)
-            e2 = 1 - e
-        else:
-            e, e2 = 0, 1  # 默认值，避免未初始化的错误
+    frame_out = ttk.LabelFrame(root, text="结果", padding=10)
+    frame_out.pack(fill="both", expand=True, padx=12, pady=6)
+    frame_out.columnconfigure(0, weight=1)
 
-        c_local = 10 * c  # 使用局部变量处理计算逻辑
-        p0 = round(100 * (e2 ** c_local) * (0.9 ** d), 2)
-        p0_label.config(text=f"不出的概率: {p0}%")
+    result_vars = {
+        "hit": tk.StringVar(value="-"),
+        "p0": tk.StringVar(value="-"),
+        "p1": tk.StringVar(value="-"),
+        "p2": tk.StringVar(value="-"),
+        "p3": tk.StringVar(value="-"),
+        "coins": tk.StringVar(value="-"),
+    }
+    labels = [
+        ("单抽命中率", "hit"),
+        ("一张都不出", "p0"),
+        ("恰好出 1 张", "p1"),
+        ("恰好出 2 张", "p2"),
+        ("出 3 张及以上", "p3"),
+        ("平均出货金币（仅金币，约）", "coins"),
+    ]
+    for r, (label, key) in enumerate(labels):
+        ttk.Label(frame_out, text=label).grid(row=r, column=0, sticky="w", pady=2)
+        ttk.Label(frame_out, textvariable=result_vars[key],
+                  style="Result.TLabel").grid(row=r, column=1, sticky="e", pady=2)
 
-        p1 = round(100 * ((e2 ** (c_local - 1) * (c_local * e)) * (0.9 ** d) + (e2 ** c_local) * (0.9 ** (d - 1) * 0.1 * d)), 2)
-        p1_label.config(text=f"出一个的概率: {p1}%")
+    ttk.Label(root, textvariable=inputs["status"], foreground="#b00020").pack(
+        fill="x", padx=14)
 
-        p2 = round(100 * ((e2 ** (c_local - 2) * (c_local * (c_local - 1) / 2) * (e) ** 2) * (0.9 ** d) +
-                          (e2 ** c_local) * (0.9 ** (d - 2) * (d * (d - 1) / 2) * 0.01) +
-                          (e2 ** (c_local - 1) * (c_local * e)) * (0.9 ** (d - 1) * 0.1 * d)), 2)
-        p2_label.config(text=f"出两个的概率: {p2}%")
+    footer = ttk.Frame(root)
+    footer.pack(fill="x", padx=12, pady=(0, 12))
 
-        p3 = abs(round(100 - p0 - p1 - p2, 2))
-        p3_label.config(text=f"出两个以上的概率: {p3}%")
-        p3_label.place(x=380, y=160, anchor="e")  # 显示 p3_label
+    def open_author() -> None:
+        win = tk.Toplevel(root)
+        win.title("作者")
+        win.transient(root)
+        win.resizable(False, False)
+        for r, (label, value) in enumerate(AUTHOR.values()):
+            is_link = value.startswith("http")
+            lab = tk.Label(win, text=label, fg="blue" if is_link else "black",
+                           cursor="hand2" if is_link else "")
+            lab.grid(row=r, column=0, sticky="w", padx=(16, 8), pady=6)
+            if is_link:
+                lab.bind("<Button-1>", lambda _e, u=value: webbrowser.open(u))
+            ttk.Button(win, text="复制",
+                       command=lambda v=value: copy_to_clipboard(win, v)).grid(
+                row=r, column=1, padx=(8, 16), pady=6)
 
-        if e != 0:
-            p4_label.config(text=f"平均出货金币: {int(100/e)}")
-        else:
-            p4_label.config(text="平均出货金币: 无法计算")
-        p4_label.place(x=380, y=180, anchor="e")
+    def read_int(key: str, label: str) -> int:
+        raw = inputs[key].get().strip()
+        try:
+            return int(raw)
+        except ValueError:
+            raise ValueError(f"{label}要填整数，当前是 {raw!r}") from None
 
-    elif selected_option == 2:
-        if a0 != 0 and a != 0 and b != 0:
-            e = a0 * (b / a)
-            e2 = 1 - e
-        else:
-            e, e2 = 0, 1  # 默认值，避免未初始化的错误
+    def recalc() -> None:
+        try:
+            rate_raw = inputs["rate"].get().strip()
+            try:
+                rate = float(rate_raw)
+            except ValueError:
+                raise ValueError(f"5星 概率要填数字，当前是 {rate_raw!r}") from None
+            ten = read_int("ten", "十连次数")
+            single = read_int("single", "单抽券张数")
+            if not 0 <= ten <= MAX_TEN_PULLS:
+                raise ValueError(f"十连次数需在 0~{MAX_TEN_PULLS} 之间")
+            if not 0 <= single <= MAX_SINGLES:
+                raise ValueError(f"单抽券张数需在 0~{MAX_SINGLES} 之间")
+            model = DrawModel(
+                rate / 100.0,
+                read_int("five", "5星 球员数量"),
+                read_int("featured", "目标球员数量"),
+                inputs["guarantee"].get(),
+            )
+            result = calculate(model, ten, single)
+        except ValueError as exc:
+            inputs["status"].set(f"输入有误：{exc}")
+            for key in ("hit", "p0", "p1", "p2", "p3", "coins"):
+                result_vars[key].set("-")
+            return
 
-        c_local = c  # 使用局部变量处理计算逻辑
-        p0 = round(100 * ((e2 ** 9) * (1 - (b / a))) ** c_local * 0.9 ** d, 2)
-        p0_label.config(text=f"不出的概率: {p0}%")
+        result_vars["hit"].set(f"{result.hit_rate * 100:.2f}%")
+        result_vars["p0"].set(f"{result.p0:.2f}%")
+        result_vars["p1"].set(f"{result.p1:.2f}%")
+        result_vars["p2"].set(f"{result.p2:.2f}%")
+        result_vars["p3"].set(f"{result.p3:.2f}%")
+        result_vars["coins"].set(
+            "无法计算" if result.avg_coins is None
+            else f"{result.avg_coins:,.0f} 金币")
+        inputs["status"].set("")
 
-        p1 = round(100 * ((e2 ** (9 * c - 1) * e * 9 * c) * (1 - (b / a)) ** c * 0.9 ** d +
-                          (e2 ** 9) * (1 - (b / a)) ** (c - 1) * (b / a) * c * 0.9 ** d +
-                          (e2 ** 9) * (1 - (b / a)) ** c * 0.9 ** (d - 1) * 0.1 * d), 2)
-        p1_label.config(text=f"出一个的概率: {p1}%")
+    ttk.Button(footer, text="作者", command=open_author).pack(side="right")
+    ttk.Button(footer, text="计算", command=recalc).pack(side="right", padx=8)
 
-        p2 = abs(round(100 - p0 - p1, 2))
-        p2_label.config(text=f"出一个以上的概率: {p2}%")
+    root.bind("<Return>", lambda _e: recalc())
+    recalc()
+    root.mainloop()
 
-        p3_label.config(text="")  # 清空 p3_label
-        p3_label.place_forget()  # 隐藏 p3_label
 
-        if e != 0:
-            p4_label.config(text=f"平均出货金币: {int(100/((a0+0.1)*b/a))}")
-        else:
-            p4_label.config(text="平均出货金币: 无法计算")
-        p4_label.place(x=380, y=160, anchor="e")
-
-# 创建标签和按钮
-author_button = tk.Button(root, text="作者", command=author)
-author_button.place(x=400, y=250, anchor="e")
-author_button.config(width=10, height=1)
-
-a0_label = tk.Label(root, text="0")
-a0_label.place(x=200, y=30, anchor="e")
-get_a0_button = tk.Button(root, text="5星球员概率", command=get_a0)
-get_a0_button.place(x=150, y=30, anchor="e")
-
-a_label = tk.Label(root, text="0")
-a_label.place(x=200, y=70, anchor="e")
-get_a_button = tk.Button(root, text="5星球员数量", command=get_a)
-get_a_button.place(x=150, y=70, anchor="e")
-
-b_label = tk.Label(root, text="0")
-b_label.place(x=200, y=110, anchor="e")
-get_b_button = tk.Button(root, text="高光/黄传/精选球员数量", command=get_b)
-get_b_button.place(x=150, y=110, anchor="e")
-
-c_label = tk.Label(root, text="0")
-c_label.place(x=200, y=150, anchor="e")
-get_c_button = tk.Button(root, text="金币十连抽次数", command=get_c)
-get_c_button.place(x=150, y=150, anchor="e")
-
-d_label = tk.Label(root, text="0")
-d_label.place(x=200, y=190, anchor="e")
-get_d_button = tk.Button(root, text="券单抽次数", command=get_d)
-get_d_button.place(x=150, y=190, anchor="e")
-
-p0_label.place(x=380, y=100, anchor="e")
-p1_label.place(x=380, y=120, anchor="e")
-p2_label.place(x=380, y=140, anchor="e")
-p3_label.place(x=380, y=160, anchor="e")  # 默认显示 p3_label
-p4_label.place(x=380, y=180, anchor="e")
-
-get_calc_button = tk.Button(root, text="计算", command=calc)
-get_calc_button.config(width=15, height=1)
-get_calc_button.place(x=270, y=50)
-
-# 单选按钮
-var = tk.IntVar()
-var.set(1)
-Normal = tk.Radiobutton(root, text="普通包", variable=var, value=1)
-Normal.place(x=250, y=20)
-Guarantees = tk.Radiobutton(root, text="保黑包", variable=var, value=2)
-Guarantees.place(x=330, y=20)
-
-# 启动主循环
-root.mainloop()
+if __name__ == "__main__":
+    main()
