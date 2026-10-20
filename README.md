@@ -14,9 +14,9 @@
 
 | 平台 | 文件 | 说明 |
 |---|---|---|
-| Windows | `实况抽卡概率计算.exe` | 单文件免安装。首次运行可能被 SmartScreen 拦截，见下方 FAQ |
-| Windows | `实况抽卡概率计算-win64.zip` | 解压后双击 `启动.bat`，**不会弹 SmartScreen**，推荐给不熟悉提示的用户 |
-| Android | `实况抽卡概率计算.apk` | Android 5.0+，安装时需允许「未知来源应用」 |
+| Windows | `efootball-calc.exe` | 单文件免安装。首次运行可能被 SmartScreen 拦截，见下方 FAQ |
+| Windows | `efootball-calc-win64.zip` | 解压后双击 `启动.bat`，**不会弹 SmartScreen**，推荐给不熟悉提示的用户 |
+| Android | `efootball-calc.apk` | Android 5.0+，安装时需允许「未知来源应用」 |
 | 源码 | `实况抽卡概率计算Promax.py` | 需要 Python 3.9+ |
 
 ## 截图
@@ -38,9 +38,9 @@
 
 ### Windows
 
-**方式一（推荐）**：下载 `实况抽卡概率计算-win64.zip`，解压后双击 `启动.bat`。
+**方式一（推荐）**：下载 `efootball-calc-win64.zip`，解压后双击 `启动.bat`。
 
-**方式二**：下载 `实况抽卡概率计算.exe`，双击运行。若出现蓝色「Windows 已保护你的电脑」窗口：
+**方式二**：下载 `efootball-calc.exe`，双击运行。若出现蓝色「Windows 已保护你的电脑」窗口：
 
 1. 点左下角「更多信息」；
 2. 点「仍要运行」。
@@ -49,7 +49,7 @@
 
 ### Android
 
-1. 下载 `实况抽卡概率计算.apk`；
+1. 下载 `efootball-calc.apk`；
 2. 在手机上点击安装，若提示风险，选择「仍要安装」（这是自签名 APK，正常现象）；
 3. 打开即可使用，无需联网。
 
@@ -113,7 +113,7 @@ $$X \sim \mathrm{Binomial}(9c, e) + \mathrm{Binomial}(c, q) + \mathrm{Binomial}(
 ## 常见问题
 
 **Q：Windows 提示「已保护你的电脑」/「不运行」，或者报 Could not create temporary directory!？**
-A：exe 没有购买代码签名证书，SmartScreen 会拦未知发布者。点「更多信息」→「仍要运行」即可；或者直接下载 `实况抽卡概率计算-win64.zip`，解压后双击 `启动.bat`（这种方式不会弹提示）。
+A：exe 没有购买代码签名证书，SmartScreen 会拦未知发布者。点「更多信息」→「仍要运行」即可。如果仍然报 `Could not create temporary directory!`，说明有安全软件拦截了单文件版解包，请改用 `efootball-calc-win64.zip`，解压后双击 `启动.bat`（这种方式不会弹提示）。
 
 **Q：安卓提示「应用未安装 / 有风险」？**
 A：APK 使用自签名证书，属于正常现象。在设置里允许该来源安装即可。
@@ -184,4 +184,6 @@ Android APK 使用 `aapt2 + javac + d8 + apksigner` 手工流水线构建（无�
 ## License
 
 [MIT](LICENSE)
+
+
 
