@@ -185,5 +185,13 @@ Android APK 使用 `aapt2 + javac + d8 + apksigner` 手工流水线构建（无�
 
 [MIT](LICENSE)
 
+---
 
+## 许可证
 
+本项目采用 [GNU General Public License v3.0](LICENSE)（GPL-3.0）。
+
+Copyright (C) 2025-2026 ssyPromax
+
+你可以自由使用、修改和分发本项目的代码；如果你分发修改后的版本，
+必须以同样的 GPL-3.0 协议公开源代码。
